@@ -234,7 +234,7 @@ function Dashboard({ token, onLogout }){
     const heroFraming = selectedPackage ? imageFraming[selectedPackage.package_id] : {};
 
     return (
-        <main className={`dashboard ${selectedPackage ? "detail-active" : ""}`}>
+        <main className={`dashboard ${selectedPackage && !showTravelHistory ? "detail-active" : ""}`}>
             <header className="dashboard-header">
                 <div>
                     <p className="eyebrow">SAFORA</p>

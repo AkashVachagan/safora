@@ -5,19 +5,21 @@ import PoliceDashboard from "./pages/police.jsx";
 import "./styles.css";
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem("safora-token"));
-  const [portal, setPortal] = useState(() => localStorage.getItem("safora-portal") || "user");
+  // Authentication belongs to a browser tab. A shared localStorage token or
+  // portal choice lets another portal login silently replace this tab's view.
+  const [token, setToken] = useState(() => sessionStorage.getItem("safora-token"));
+  const [portal, setPortal] = useState(() => sessionStorage.getItem("safora-portal") || "user");
 
   useEffect(() => {
     if (token) {
-      localStorage.setItem("safora-token", token);
+      sessionStorage.setItem("safora-token", token);
     } else {
-      localStorage.removeItem("safora-token");
+      sessionStorage.removeItem("safora-token");
     }
   }, [token]);
 
   useEffect(() => {
-    localStorage.setItem("safora-portal", portal);
+    sessionStorage.setItem("safora-portal", portal);
   }, [portal]);
 
   function authenticate(nextToken, nextPortal) {
