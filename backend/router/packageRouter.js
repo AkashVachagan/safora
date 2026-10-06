@@ -1,5 +1,6 @@
 import express from "express";
 import fs from "fs";
+import tokenVerification from "../middleware/tokenVerify.js";
 
 const router = express.Router();
 const PACKAGE_FILE = "./package/packageInfo.json";
@@ -41,13 +42,13 @@ function detailedGuide(seed) {
     ];
 }
 
-function fallbackRoute(destination = MAHABALIPURAM) {
+function fallbackRoute(destination = MAHABALIPURAM, origin = ALANDUR) {
     // A local approximation following the East Coast Road. It keeps the map useful
     // when the optional OSRM road-routing service cannot be reached at startup.
-    if (destination[0] !== MAHABALIPURAM[0] || destination[1] !== MAHABALIPURAM[1]) {
-        return [ALANDUR, [
-            (ALANDUR[0] + destination[0]) / 2,
-            (ALANDUR[1] + destination[1]) / 2,
+    if (destination[0] !== MAHABALIPURAM[0] || destination[1] !== MAHABALIPURAM[1] || origin[0] !== ALANDUR[0] || origin[1] !== ALANDUR[1]) {
+        return [origin, [
+            (origin[0] + destination[0]) / 2,
+            (origin[1] + destination[1]) / 2,
         ], destination];
     }
     return [
@@ -58,18 +59,37 @@ function fallbackRoute(destination = MAHABALIPURAM) {
     ];
 }
 
-async function calculateRoute(destination) {
+async function calculateRouteBetween(origin, destination) {
     try {
-        const coordinates = `${ALANDUR.join(",")};${destination.join(",")}`;
+        const coordinates = `${origin.join(",")};${destination.join(",")}`;
         const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(8000) });
         const result = await response.json();
         if (response.ok && result.routes?.[0]?.geometry?.coordinates?.length) {
             return { route: result.routes[0].geometry.coordinates, source: "osrm" };
         }
     } catch (error) {
-        console.warn("Route service unavailable; using the local route fallback.");
+        console.warn(`[Trip planner] OSRM route service failed (${error.message}); using the local route fallback.`);
     }
-    return { route: fallbackRoute(destination), source: "local-fallback" };
+    console.warn("[Trip planner] OSRM returned no usable route; using the local route fallback.");
+    return { route: fallbackRoute(destination, origin), source: "local-fallback" };
+}
+
+async function calculateRoute(destination) {
+    return calculateRouteBetween(ALANDUR, destination);
+}
+
+async function geocodePlace(place) {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(place)}`, {
+        headers: { "User-Agent": "Safora trip planner", Accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) throw new Error(`Place search returned HTTP ${response.status}`);
+    const results = await response.json();
+    if (!results[0]) throw new Error(`Could not find “${place}”`);
+    return {
+        name: results[0].display_name,
+        coordinates: [Number(results[0].lon), Number(results[0].lat)],
+    };
 }
 
 export async function initialisePackages() {
@@ -118,6 +138,33 @@ export async function initialisePackages() {
 router.get("/", (req, res) => {
     const packages = JSON.parse(fs.readFileSync(PACKAGE_FILE, "utf-8"));
     return res.json(packages.map(({ route, ...item }) => item));
+});
+
+router.post("/plan-route", tokenVerification, async (req, res) => {
+    if (req.portal !== "user") return res.status(403).json({ error: "User portal account required" });
+    const startQuery = typeof req.body?.start === "string" ? req.body.start.trim() : "";
+    const destinationQuery = typeof req.body?.destination === "string" ? req.body.destination.trim() : "";
+    if (!startQuery || !destinationQuery) {
+        return res.status(400).json({ error: "Enter both a start and a destination" });
+    }
+
+    let stage = "start location search";
+    try {
+        console.log("[Trip planner] Searching for the start location.");
+        const start = await geocodePlace(startQuery);
+        // Nominatim asks clients to keep requests to one per second.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        stage = "destination search";
+        console.log("[Trip planner] Searching for the destination.");
+        const destination = await geocodePlace(destinationQuery);
+        stage = "road route calculation";
+        console.log("[Trip planner] Calculating a route between the matched locations.");
+        const calculated = await calculateRouteBetween(start.coordinates, destination.coordinates);
+        return res.json({ start, destination, ...calculated });
+    } catch (error) {
+        console.error(`[Trip planner] ${stage} failed: ${error.message}`);
+        return res.status(502).json({ error: `${stage} failed: ${error.message || "Could not plan this route"}` });
+    }
 });
 
 router.get("/:packageId", (req, res) => {
