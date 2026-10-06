@@ -20,7 +20,7 @@ const tokenVerification = (req, res, next) => {
         });
     }
 
-    if (Date.now() > jwt.expiresAt){
+    if (!jwt.device && Date.now() > jwt.expiresAt){
         console.log("token expired, relogin");
         return res.status(403).json({
             error: "token expired"

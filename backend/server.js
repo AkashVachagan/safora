@@ -4,6 +4,8 @@ import registerRouter from "./router/registerRouter.js";
 import clearRouter from "./router/clearRouter.js";
 import packageRouter, { initialisePackages } from "./router/packageRouter.js";
 import contactRouter from "./router/contactRouter.js";
+import locationRouter from "./router/locationRouter.js";
+import deviceTokenRouter from "./router/deviceTokenRouter.js";
 
 const app = express();
 
@@ -12,6 +14,8 @@ app.use(express.json());
 
 app.use("/user", registerRouter);
 app.use("/user/contacts", contactRouter);
+app.use("/user/device-token", deviceTokenRouter);
+app.use("/api/location", locationRouter);
 
 app.use("/clear", clearRouter);
 app.use("/packages", packageRouter);
@@ -29,7 +33,7 @@ async function startServer() {
     }
 
     await initialisePackages();
-    app.listen(3000, () => console.log("server successfully started"));
+    app.listen(3000, '0.0.0.0', () => console.log("server successfully started"));
 }
 
 startServer();

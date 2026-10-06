@@ -40,6 +40,12 @@ function Dashboard({ token, onLogout }){
     const [packages, setPackages] = useState([]);
     const [isLoadingRoute, setIsLoadingRoute] = useState(false);
     const [showBandDialog, setShowBandDialog] = useState(false);
+    const [deviceToken, setDeviceToken] = useState("");
+    const [isCreatingDeviceToken, setIsCreatingDeviceToken] = useState(false);
+    const [deviceTokenError, setDeviceTokenError] = useState("");
+    const [showMeDialog, setShowMeDialog] = useState(false);
+    const [locations, setLocations] = useState([]);
+    const [locationsError, setLocationsError] = useState("");
     const [search, setSearch] = useState("");
     const [radius, setRadius] = useState("");
     const [userLocation, setUserLocation] = useState(null);
@@ -126,6 +132,34 @@ function Dashboard({ token, onLogout }){
         }
     }
 
+    async function connectPhone() {
+        setIsCreatingDeviceToken(true);
+        setDeviceTokenError("");
+        try {
+            const response = await fetch("/user/device-token", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+            const body = await responseBody(response);
+            if (!response.ok) throw new Error(body.error || "Could not generate a phone token");
+            setDeviceToken(body.token);
+        } catch (error) {
+            setDeviceTokenError(error.message);
+        } finally {
+            setIsCreatingDeviceToken(false);
+        }
+    }
+
+    async function openMe() {
+        setLocationsError("");
+        setShowMeDialog(true);
+        try {
+            const response = await fetch("/api/location", { headers: { Authorization: `Bearer ${token}` } });
+            const body = await responseBody(response);
+            if (!response.ok) throw new Error(body.error || "Could not load location history");
+            setLocations(body.locations || []);
+        } catch (error) {
+            setLocationsError(error.message);
+        }
+    }
+
     const profile = selectedPackage?.profile;
     const heroImage = selectedPackage ? packageImages[selectedPackage.package_id] : "";
     const heroFraming = selectedPackage ? imageFraming[selectedPackage.package_id] : {};
@@ -139,6 +173,7 @@ function Dashboard({ token, onLogout }){
                 </div>
                 <div className="header-actions">
                     {selectedPackage && <button className="back-button" onClick={returnToDashboard}>← Back to packages</button>}
+                    <button className="contacts-button" onClick={openMe}>Me</button>
                     <button className="contacts-button" onClick={openContacts}>Add emergency contacts</button>
                     <button className="logout-button" onClick={onLogout}>Log out</button>
                 </div>
@@ -223,9 +258,26 @@ function Dashboard({ token, onLogout }){
                     <button className="modal-close" aria-label="Close" onClick={() => setShowBandDialog(false)}>×</button>
                     <div className="band-icon" aria-hidden="true">⌁</div>
                     <p className="eyebrow">SAFETY SETUP</p>
-                    <h2 id="band-title">Connect with smart band</h2>
-                    <p>Pair your band to receive route updates and safety alerts while your package is active.</p>
-                    <button className="connect-button" onClick={() => setShowBandDialog(false)}>Connect</button>
+                    <h2 id="band-title">Connect with phone</h2>
+                    <p>Use this token in your phone location app. Send location updates to <code>/api/location</code> with an <code>Authorization: Bearer TOKEN</code> header.</p>
+                    {deviceToken && <div className="device-token"><span>Your phone token</span><code>{deviceToken}</code></div>}
+                    {deviceTokenError && <p className="form-error" role="alert">{deviceTokenError}</p>}
+                    <button className="connect-button" onClick={connectPhone} disabled={isCreatingDeviceToken || !!deviceToken}>{isCreatingDeviceToken ? "Generating…" : deviceToken ? "Token generated" : "Generate phone token"}</button>
+                </section>
+            </div>}
+
+            {showMeDialog && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowMeDialog(false)}>
+                <section className="contacts-modal me-modal" role="dialog" aria-modal="true" aria-labelledby="me-title" onMouseDown={(event) => event.stopPropagation()}>
+                    <button className="modal-close" aria-label="Close" onClick={() => setShowMeDialog(false)}>×</button>
+                    <p className="eyebrow">LOCATION HISTORY</p>
+                    <h2 id="me-title">Me</h2>
+                    <p>Phone location updates saved to your account.</p>
+                    {locationsError && <p className="form-error" role="alert">{locationsError}</p>}
+                    {!locationsError && !locations.length && <p>No phone locations received yet.</p>}
+                    {!!locations.length && <div className="location-history">{[...locations].reverse().map((location, index) => <article className="location-entry" key={`${location.lat}-${location.lon}-${index}`}>
+                        <strong>{location.lat}, {location.lon}</strong>
+                        <span>Altitude: {location.alt} m</span><span>Velocity: {location.vel}</span>
+                    </article>)}</div>}
                 </section>
             </div>}
 

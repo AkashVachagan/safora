@@ -5,7 +5,7 @@ import fs from "fs";
 
 const router = express.Router();
 
-const THIRTY_MINUTES = 30 * 60 * 1000;
+const DAY = 24 * 60 * 60 * 1000;
 
 // user registration
 // update userList.json -> username, hash, user_id
@@ -39,7 +39,7 @@ router.post("/register", async (req, res) => {
     const tokenTemplate = {
         user_id: randomUserId,
         token: randomToken,
-        expiresAt: Date.now() + THIRTY_MINUTES
+        expiresAt: Date.now() + DAY
     }
     tokenList.push(tokenTemplate);
     
@@ -88,7 +88,7 @@ router.post("/login", async (req, res) => {
     }
 
     jwt.token = randomToken;
-    jwt.expiresAt = Date.now() + THIRTY_MINUTES;
+    jwt.expiresAt = Date.now() + DAY;
 
     fs.writeFileSync("./jwt/token.json", JSON.stringify(tokenList, null, 2));
 
