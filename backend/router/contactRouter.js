@@ -10,6 +10,7 @@ function readContacts() {
 }
 
 router.use(tokenVerification);
+router.use((req, res, next) => req.portal === "user" ? next() : res.status(403).json({ error: "User portal account required" }));
 
 router.get("/", (req, res) => {
     const contactsByUser = readContacts();

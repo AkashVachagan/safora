@@ -29,6 +29,7 @@ const tokenVerification = (req, res, next) => {
 
     const user_id = jwt.user_id;
     req.user_id = user_id;
+    req.portal = jwt.portal || "user";
 
     next();
 }

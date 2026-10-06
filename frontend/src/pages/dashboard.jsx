@@ -43,9 +43,16 @@ function Dashboard({ token, onLogout }){
     const [deviceToken, setDeviceToken] = useState("");
     const [isCreatingDeviceToken, setIsCreatingDeviceToken] = useState(false);
     const [deviceTokenError, setDeviceTokenError] = useState("");
-    const [showMeDialog, setShowMeDialog] = useState(false);
     const [locations, setLocations] = useState([]);
     const [locationsError, setLocationsError] = useState("");
+    const [showTravelHistory, setShowTravelHistory] = useState(false);
+    const [tripHistory, setTripHistory] = useState([]);
+    const [selectedTrip, setSelectedTrip] = useState(null);
+    const [travelerName, setTravelerName] = useState("");
+    const [tripComment, setTripComment] = useState("");
+    const [tripError, setTripError] = useState("");
+    const [tripRoute, setTripRoute] = useState([]);
+    const [isEndingTrip, setIsEndingTrip] = useState(false);
     const [search, setSearch] = useState("");
     const [radius, setRadius] = useState("");
     const [userLocation, setUserLocation] = useState(null);
@@ -62,6 +69,33 @@ function Dashboard({ token, onLogout }){
             .then(setPackages)
             .catch(() => setPackages([]));
     }, []);
+
+    useEffect(() => {
+        if (!selectedTrip || selectedTrip.endedAt) return undefined;
+        let cancelled = false;
+        const refresh = async () => {
+            try {
+                const response = await fetch("/api/trips", { headers: { Authorization: `Bearer ${token}` } });
+                const body = await responseBody(response);
+                const current = body.trips?.find((trip) => trip.id === selectedTrip.id);
+                if (!cancelled && response.ok && current) {
+                    setSelectedTrip(current);
+                    setTripHistory((existing) => existing.map((trip) => trip.id === current.id ? current : trip));
+                }
+            } catch { /* keep the most recently received track visible */ }
+        };
+        const timer = window.setInterval(refresh, 3000);
+        return () => { cancelled = true; window.clearInterval(timer); };
+    }, [selectedTrip?.id, selectedTrip?.endedAt, token]);
+
+    useEffect(() => {
+        if (!selectedTrip) { setTripRoute([]); return; }
+        let cancelled = false;
+        fetch(`/packages/${selectedTrip.package_id}`).then((response) => response.ok ? response.json() : null).then((body) => {
+            if (!cancelled) setTripRoute(body?.route?.map(([longitude, latitude]) => [latitude, longitude]) || []);
+        }).catch(() => { if (!cancelled) setTripRoute([]); });
+        return () => { cancelled = true; };
+    }, [selectedTrip?.package_id]);
 
     const filteredPackages = useMemo(() => packages.filter((item) => {
         const searchMatches = `${item.name} ${item.state}`.toLowerCase().includes(search.toLowerCase());
@@ -86,6 +120,8 @@ function Dashboard({ token, onLogout }){
     function returnToDashboard() {
         setSelectedPackage(null);
         setRoute(null);
+        setSelectedTrip(null);
+        setShowTravelHistory(false);
     }
 
     function findMyLocation() {
@@ -139,7 +175,7 @@ function Dashboard({ token, onLogout }){
             const response = await fetch("/user/device-token", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
             const body = await responseBody(response);
             if (!response.ok) throw new Error(body.error || "Could not generate a phone token");
-            setDeviceToken(body.token);
+            setDeviceToken(`Bearer ${body.token}`);
         } catch (error) {
             setDeviceTokenError(error.message);
         } finally {
@@ -149,14 +185,47 @@ function Dashboard({ token, onLogout }){
 
     async function openMe() {
         setLocationsError("");
-        setShowMeDialog(true);
+        setShowTravelHistory(true);
+        setSelectedTrip(null);
         try {
-            const response = await fetch("/api/location", { headers: { Authorization: `Bearer ${token}` } });
+            const response = await fetch("/api/trips", { headers: { Authorization: `Bearer ${token}` } });
             const body = await responseBody(response);
             if (!response.ok) throw new Error(body.error || "Could not load location history");
-            setLocations(body.locations || []);
+            setTravelerName(body.name || "Traveler");
+            setTripHistory(body.trips || []);
         } catch (error) {
             setLocationsError(error.message);
+        }
+    }
+
+    async function activateTrip() {
+        setDeviceTokenError("");
+        try {
+            const response = await fetch("/api/trips", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ package_id: selectedPackage.package_id, package_name: selectedPackage.name }) });
+            const body = await responseBody(response);
+            if (!response.ok) throw new Error(body.error || "Could not start this trip");
+            setTripHistory((current) => [body.trip, ...current]);
+            setShowBandDialog(true);
+        } catch (error) {
+            setDeviceTokenError(error.message);
+            setShowBandDialog(true);
+        }
+    }
+
+    async function endTrip() {
+        if (!selectedTrip) return;
+        setTripError("");
+        setIsEndingTrip(true);
+        try {
+            const response = await fetch(`/api/trips/${selectedTrip.id}/end`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ comments: tripComment }) });
+            const body = await responseBody(response);
+            if (!response.ok) throw new Error(body.error || "Could not end this trip");
+            setSelectedTrip(body.trip);
+            setTripHistory((current) => current.map((trip) => trip.id === body.trip.id ? body.trip : trip));
+        } catch (error) {
+            setTripError(error.message);
+        } finally {
+            setIsEndingTrip(false);
         }
     }
 
@@ -169,17 +238,34 @@ function Dashboard({ token, onLogout }){
             <header className="dashboard-header">
                 <div>
                     <p className="eyebrow">SAFORA</p>
-                    <h1>{selectedPackage ? selectedPackage.name : "Package dashboard"}</h1>
+                    <h1>{selectedPackage ? selectedPackage.name : showTravelHistory ? (selectedTrip ? selectedTrip.package_name : "Travel history") : "Package dashboard"}</h1>
                 </div>
                 <div className="header-actions">
-                    {selectedPackage && <button className="back-button" onClick={returnToDashboard}>← Back to packages</button>}
+                    {(selectedPackage || showTravelHistory) && <button className="back-button" onClick={returnToDashboard}>← Back to packages</button>}
                     <button className="contacts-button" onClick={openMe}>Me</button>
                     <button className="contacts-button" onClick={openContacts}>Add emergency contacts</button>
                     <button className="logout-button" onClick={onLogout}>Log out</button>
                 </div>
             </header>
 
-            {!selectedPackage ? <>
+            {showTravelHistory ? <section className="travel-page" aria-labelledby="travel-history-title">
+                {!selectedTrip ? <>
+                    <div className="section-heading"><div><p className="eyebrow">YOUR JOURNEYS</p><h2 id="travel-history-title">Travel history</h2></div><span className="package-count">{tripHistory.length} trips</span></div>
+                    {locationsError && <p className="form-error" role="alert">{locationsError}</p>}
+                    {!tripHistory.length && !locationsError && <p className="empty-packages">Your trips will appear here when you activate a package.</p>}
+                    <div className="trip-grid">{[...tripHistory].sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt)).map((trip) => <button className="trip-card" key={trip.id} onClick={() => { setSelectedTrip(trip); setLocations(trip.locations || []); setTripComment(trip.comments || ""); setTripError(""); }}>
+                        <span className={`trip-tag ${trip.endedAt ? "done" : "active"}`}>{trip.endedAt ? "DONE" : "ACTIVE"}</span><h3>{trip.package_name}</h3><p>{formatTravelDate(trip.startedAt)}</p>
+                    </button>)}</div>
+                </> : <>
+                    <div className="section-heading"><div><p className="eyebrow">TRIP DETAILS</p><h2 id="travel-history-title">{selectedTrip.package_name}</h2></div><button className="back-button" onClick={() => setSelectedTrip(null)}>← All trips</button></div>
+                    {selectedTrip.offRoute && <p className="deviation-alert" role="alert">You’re about 10 m off the planned path. Please get back on the path.</p>}
+                    <Map route={tripRoute} locations={selectedTrip.locations || []} />
+                    <section className="trip-information"><p className="eyebrow">TRAVEL NOTES</p><h3>Trip history</h3><p><strong>Traveler</strong> {travelerName}</p><p><strong>Started</strong> {formatTravelDate(selectedTrip.startedAt)}</p><p><strong>Ended</strong> {selectedTrip.endedAt ? formatTravelDate(selectedTrip.endedAt) : "Still active"}</p>
+                        {selectedTrip.endedAt ? <p><strong>Your comments</strong> {selectedTrip.comments || "No comments added."}</p> : <><label htmlFor="trip-comment">Your comments</label><textarea id="trip-comment" value={tripComment} onChange={(event) => setTripComment(event.target.value)} placeholder="Add a note about this trip" rows="3"/><button className="connect-button end-trip-button" onClick={endTrip} disabled={isEndingTrip}>{isEndingTrip ? "Ending trip…" : "End trip"}</button></>}
+                        {tripError && <p className="form-error" role="alert">{tripError}</p>}
+                    </section>
+                </>}
+            </section> : !selectedPackage ? <>
             <section className="map-section" aria-labelledby="map-title">
                 <div className="section-heading">
                     <div>
@@ -216,7 +302,7 @@ function Dashboard({ token, onLogout }){
                 <article className="destination-content">
                     <div className="destination-heading">
                         <div><p className="eyebrow">DESTINATION GUIDE</p><h2 id="destination-title">{selectedPackage.name}, a memorable Indian landmark</h2></div>
-                        <button className="activate-button" onClick={() => setShowBandDialog(true)}>Activate</button>
+                        <button className="activate-button" onClick={activateTrip}>Activate</button>
                     </div>
                     <div className="hero-photo" style={{ backgroundImage: `linear-gradient(0deg, rgba(11, 31, 19, .67), rgba(11, 31, 19, .04) 65%), url("${heroImage}")`, ...heroFraming }}><div><p className="card-label">{selectedPackage.name.toUpperCase()} · {selectedPackage.state.toUpperCase()}</p><span>{profile?.hero}</span></div></div>
                     <div className="guide-intro">
@@ -259,27 +345,13 @@ function Dashboard({ token, onLogout }){
                     <div className="band-icon" aria-hidden="true">⌁</div>
                     <p className="eyebrow">SAFETY SETUP</p>
                     <h2 id="band-title">Connect with phone</h2>
-                    <p>Use this token in your phone location app. Send location updates to <code>/api/location</code> with an <code>Authorization: Bearer TOKEN</code> header.</p>
+                    <p>Copy this bearer value into your phone location app’s authorization setting. Send location updates to <code>/api/location</code>.</p>
                     {deviceToken && <div className="device-token"><span>Your phone token</span><code>{deviceToken}</code></div>}
                     {deviceTokenError && <p className="form-error" role="alert">{deviceTokenError}</p>}
                     <button className="connect-button" onClick={connectPhone} disabled={isCreatingDeviceToken || !!deviceToken}>{isCreatingDeviceToken ? "Generating…" : deviceToken ? "Token generated" : "Generate phone token"}</button>
                 </section>
             </div>}
 
-            {showMeDialog && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowMeDialog(false)}>
-                <section className="contacts-modal me-modal" role="dialog" aria-modal="true" aria-labelledby="me-title" onMouseDown={(event) => event.stopPropagation()}>
-                    <button className="modal-close" aria-label="Close" onClick={() => setShowMeDialog(false)}>×</button>
-                    <p className="eyebrow">LOCATION HISTORY</p>
-                    <h2 id="me-title">Me</h2>
-                    <p>Phone location updates saved to your account.</p>
-                    {locationsError && <p className="form-error" role="alert">{locationsError}</p>}
-                    {!locationsError && !locations.length && <p>No phone locations received yet.</p>}
-                    {!!locations.length && <div className="location-history">{[...locations].reverse().map((location, index) => <article className="location-entry" key={`${location.lat}-${location.lon}-${index}`}>
-                        <strong>{location.lat}, {location.lon}</strong>
-                        <span>Altitude: {location.alt} m</span><span>Velocity: {location.vel}</span>
-                    </article>)}</div>}
-                </section>
-            </div>}
 
             {showContactsDialog && <div className="modal-backdrop" role="presentation" onMouseDown={() => setShowContactsDialog(false)}>
                 <section className="contacts-modal" role="dialog" aria-modal="true" aria-labelledby="contacts-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -316,6 +388,11 @@ function distanceInKm([lat1, lon1], [lat2, lon2]) {
 
 function newContact() {
     return { id: crypto.randomUUID(), name: "", phone: "" };
+}
+
+function formatTravelDate(value) {
+    if (!value) return "Date unavailable";
+    return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 async function responseBody(response) {

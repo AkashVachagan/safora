@@ -6,10 +6,11 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/user": "http://localhost:3000",
-      "/packages": "http://localhost:3000",
-      "/contacts": "http://localhost:3000",
-      "/api": "http://localhost:3000",
+      "/user": "http://127.0.0.1:3000",
+      "/packages": "http://127.0.0.1:3000",
+      "/contacts": "http://127.0.0.1:3000",
+      "/api": "http://127.0.0.1:3000",
+      "/clear": "http://127.0.0.1:3000",
     },
   },
 })

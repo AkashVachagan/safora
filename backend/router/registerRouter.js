@@ -7,13 +7,20 @@ const router = express.Router();
 
 const DAY = 24 * 60 * 60 * 1000;
 
+function accountsFile(portal) {
+    return portal === "police" ? "./user/policeInfo.json" : "./user/userInfo.json";
+}
+
 // user registration
 // update userList.json -> username, hash, user_id
 // update tree.json
 // update token.json
 router.post("/register", async (req, res) => {
-    const {username, password} = req.body;
-    const userListString = fs.readFileSync("./user/userInfo.json", "utf-8");
+    const {username, password, phone, portal = "user"} = req.body;
+    if (!username?.trim() || !password || (portal === "user" && !phone?.trim())) return res.status(400).json({ error: "Username, password, and a phone number for the user portal are required" });
+    const userFile = accountsFile(portal);
+    if (!fs.existsSync(userFile)) fs.writeFileSync(userFile, JSON.stringify([], null, 2));
+    const userListString = fs.readFileSync(userFile, "utf-8");
     const tokenListString = fs.readFileSync("./jwt/token.json", "utf-8");
     const userList = JSON.parse(userListString);
     const tokenList = JSON.parse(tokenListString);
@@ -31,6 +38,7 @@ router.post("/register", async (req, res) => {
 
     const userTemplate = {
         name: username,
+        ...(portal === "user" ? { phone: phone.trim() } : {}),
         hash: hashPass,
         user_id: randomUserId
     };
@@ -38,12 +46,13 @@ router.post("/register", async (req, res) => {
 
     const tokenTemplate = {
         user_id: randomUserId,
+        portal,
         token: randomToken,
         expiresAt: Date.now() + DAY
     }
     tokenList.push(tokenTemplate);
     
-    fs.writeFileSync("./user/userInfo.json", JSON.stringify(userList, null, 2));
+    fs.writeFileSync(userFile, JSON.stringify(userList, null, 2));
     fs.writeFileSync("./jwt/token.json", JSON.stringify(tokenList, null, 2));
     console.log("user registration successful");
 
@@ -54,8 +63,10 @@ router.post("/register", async (req, res) => {
 
 // user login
 router.post("/login", async (req, res) => {
-    const {username, password} = req.body;
-    const userListString = fs.readFileSync("./user/userInfo.json", "utf-8");
+    const {username, password, portal = "user"} = req.body;
+    const userFile = accountsFile(portal);
+    if (!fs.existsSync(userFile)) return res.status(404).json({ error: "username not found in this portal" });
+    const userListString = fs.readFileSync(userFile, "utf-8");
     const tokenListString = fs.readFileSync("./jwt/token.json", "utf-8");
     const userList = JSON.parse(userListString);
     const tokenList = JSON.parse(tokenListString);
@@ -79,7 +90,7 @@ router.post("/login", async (req, res) => {
     }
 
     const user_id = userInfo.user_id;
-    const jwt = tokenList.find(child => child.user_id === user_id);
+    const jwt = tokenList.find(child => child.user_id === user_id && (child.portal || "user") === portal);
     if (!jwt){
         console.log("user jwt not available");
         return res.status(500).json({
@@ -89,6 +100,7 @@ router.post("/login", async (req, res) => {
 
     jwt.token = randomToken;
     jwt.expiresAt = Date.now() + DAY;
+    jwt.portal = portal;
 
     fs.writeFileSync("./jwt/token.json", JSON.stringify(tokenList, null, 2));
 
