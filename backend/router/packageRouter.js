@@ -4,6 +4,16 @@ import tokenVerification from "../middleware/tokenVerify.js";
 
 const router = express.Router();
 const PACKAGE_FILE = "./package/packageInfo.json";
+const OSRM_SERVERS = [
+    {
+        name: "OSRM primary",
+        baseUrl: (process.env.OSRM_BASE_URL || "https://router.project-osrm.org").replace(/\/$/, ""),
+    },
+    {
+        name: "OSRM backup",
+        baseUrl: (process.env.OSRM_BACKUP_BASE_URL || "https://routing.openstreetmap.de/routed-car").replace(/\/$/, ""),
+    },
+];
 const ALANDUR = [80.2010, 13.0067];
 const MAHABALIPURAM = [80.1927, 12.6269];
 const PACKAGE_SEEDS = [
@@ -59,19 +69,34 @@ function fallbackRoute(destination = MAHABALIPURAM, origin = ALANDUR) {
     ];
 }
 
-async function calculateRouteBetween(origin, destination) {
-    try {
-        const coordinates = `${origin.join(",")};${destination.join(",")}`;
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson`, { signal: AbortSignal.timeout(8000) });
-        const result = await response.json();
-        if (response.ok && result.routes?.[0]?.geometry?.coordinates?.length) {
-            return { route: result.routes[0].geometry.coordinates, source: "osrm" };
+async function calculateRouteBetween(origin, destination, { allowFallback = true } = {}) {
+    const coordinates = `${origin.join(",")};${destination.join(",")}`;
+    const failures = [];
+    for (const server of OSRM_SERVERS) {
+        try {
+            const response = await fetch(`${server.baseUrl}/route/v1/driving/${coordinates}?overview=full&geometries=geojson`, {
+                headers: { Accept: "application/json" },
+                signal: AbortSignal.timeout(12000),
+            });
+            const result = await response.json();
+            const route = result.routes?.[0]?.geometry?.coordinates;
+            if (response.ok && result.code === "Ok" && Array.isArray(route) && route.length >= 2) {
+                console.log(`[Trip planner] ${server.name} returned a road route (${route.length} points).`);
+                return { route, source: "osrm" };
+            }
+            const reason = result.message || result.code || `HTTP ${response.status}`;
+            failures.push(`${server.name}: ${reason}`);
+            console.warn(`[Trip planner] ${server.name} returned no road route: ${reason}.`);
+        } catch (error) {
+            failures.push(`${server.name}: ${error.message}`);
+            console.warn(`[Trip planner] ${server.name} request failed: ${error.message}.`);
         }
-    } catch (error) {
-        console.warn(`[Trip planner] OSRM route service failed (${error.message}); using the local route fallback.`);
     }
-    console.warn("[Trip planner] OSRM returned no usable route; using the local route fallback.");
-    return { route: fallbackRoute(destination, origin), source: "local-fallback" };
+    if (!allowFallback) {
+        return { route: null, source: "unavailable", error: failures.join("; ") };
+    }
+    console.warn("[Trip planner] No OSRM server returned a route; using the local route fallback.");
+    return { route: fallbackRoute(destination, origin), source: "local-fallback", error: failures.join("; ") };
 }
 
 async function calculateRoute(destination) {
@@ -159,7 +184,11 @@ router.post("/plan-route", tokenVerification, async (req, res) => {
         const destination = await geocodePlace(destinationQuery);
         stage = "road route calculation";
         console.log("[Trip planner] Calculating a route between the matched locations.");
-        const calculated = await calculateRouteBetween(start.coordinates, destination.coordinates);
+        const calculated = await calculateRouteBetween(start.coordinates, destination.coordinates, { allowFallback: false });
+        if (!calculated.route) {
+            console.error(`[Trip planner] No road route could be calculated: ${calculated.error}`);
+            return res.status(502).json({ error: "The road route service is unavailable right now. Please try again shortly." });
+        }
         return res.json({ start, destination, ...calculated });
     } catch (error) {
         console.error(`[Trip planner] ${stage} failed: ${error.message}`);

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import saforaLogo from "../images/safora_logo.png";
+import backgroundVideo from "../images/background vid.mp4";
 
 function Auth({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
@@ -64,9 +66,13 @@ function Auth({ onAuthenticated }) {
 
   return (
     <main className="auth-page">
+      <div className="auth-video-background" aria-hidden="true">
+        <video autoPlay muted loop playsInline>
+          <source src={backgroundVideo} type="video/mp4" />
+        </video>
+      </div>
       <section className="auth-card" aria-labelledby="auth-title">
-        <div className="brand-mark">S</div>
-        <p className="eyebrow">SAFORA</p>
+        <img className="auth-logo" src={saforaLogo} alt="Safora" />
         <h1 id="auth-title">{isLogin ? "Welcome back" : "Create your account"}</h1>
         <p className="auth-intro">
           {isLogin ? "Sign in to keep an eye on your packages." : "Start tracking your packages in one place."}
@@ -77,12 +83,12 @@ function Auth({ onAuthenticated }) {
           <button type="button" className={portal === "police" ? "active" : ""} onClick={() => setPortal("police")}>Police portal</button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} autoComplete="off">
           <label htmlFor="username">Username</label>
-          <input id="username" value={username} onChange={(event) => setUsername(event.target.value)} required autoComplete="username" />
+          <input id="username" value={username} onChange={(event) => setUsername(event.target.value)} required autoComplete="off" />
 
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="1" autoComplete={isLogin ? "current-password" : "new-password"} />
+          <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength="1" autoComplete="off" />
 
           {!isLogin && portal === "user" && <><label htmlFor="phone">Phone number</label><input id="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} required autoComplete="tel" placeholder="+91 98765 43210" /></>}
 

@@ -9,11 +9,14 @@ import deviceTokenRouter from "./router/deviceTokenRouter.js";
 import tripRouter from "./router/tripRouter.js";
 import policeRouter from "./router/policeRouter.js";
 import { sweepPoliceCases } from "./utils/caseEscalation.js";
+import { processRecentActiveTripLocations } from "./utils/tripLocationMonitor.js";
 
 const app = express();
 
 app.use(express.text());
-app.use(express.json());
+// Planned OSRM routes can contain tens of thousands of coordinates, so allow
+// enough JSON for the browser to save the full route geometry with a trip.
+app.use(express.json({ limit: "5mb" }));
 
 app.use("/user", registerRouter);
 app.use("/user/contacts", contactRouter);
@@ -45,6 +48,10 @@ async function startServer() {
         sweepPoliceCases().catch((error) => console.error(`Could not check for overdue route cases: ${error.message}`));
     }, 5000);
     caseSweep.unref();
+    const locationSweep = setInterval(() => {
+        processRecentActiveTripLocations().catch((error) => console.error(`Could not process recent trip locations: ${error.message}`));
+    }, 3000);
+    locationSweep.unref();
     app.listen(3000, '0.0.0.0', () => console.log("server successfully started"));
 }
 

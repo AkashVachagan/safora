@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import saforaLogo from "../images/safora_logo.png";
 import Map from "../components/map.jsx";
 import mahabalipuramImage from "../images/mahabalipuram.jpg";
 import darjeelingImage from "../images/darjeeling.jpg";
@@ -151,7 +152,7 @@ function Dashboard({ token, onLogout }){
     }, []);
 
     useEffect(() => {
-        if (!selectedTrip || selectedTrip.endedAt || selectedTrip.isPlanned) return undefined;
+        if (!selectedTrip || selectedTrip.endedAt || (selectedTrip.isPlanned && !selectedTrip.tripStartedAt)) return undefined;
         let cancelled = false;
         const refresh = async () => {
             try {
@@ -166,7 +167,7 @@ function Dashboard({ token, onLogout }){
         };
         const timer = window.setInterval(refresh, 3000);
         return () => { cancelled = true; window.clearInterval(timer); };
-    }, [selectedTrip?.id, selectedTrip?.endedAt, token]);
+    }, [selectedTrip?.id, selectedTrip?.endedAt, selectedTrip?.isPlanned, selectedTrip?.tripStartedAt, token]);
 
     useEffect(() => {
         if (!selectedTrip?.isPlanned || selectedTrip.travelBriefingStatus !== "loading") return undefined;
@@ -475,7 +476,7 @@ function Dashboard({ token, onLogout }){
         <main className={`dashboard ${selectedPackage && !showTravelHistory ? "detail-active" : ""}`}>
             <header className="dashboard-header">
                 <div>
-                    <p className="eyebrow">SAFORA</p>
+                    <img className="dashboard-logo" src={saforaLogo} alt="Safora" />
                     <h1>{selectedPackage ? selectedPackage.name : showTravelHistory ? (selectedTrip ? selectedTrip.package_name : "Travel history") : "Package dashboard"}</h1>
                 </div>
                 <div className="header-actions">

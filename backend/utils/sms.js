@@ -1,4 +1,4 @@
-const SMS_URL = process.env.ANDROID_SMS_URL || "http://192.168.1.12:8080/message";
+const SMS_URL = process.env.ANDROID_SMS_URL || "http://192.168.137.60:8080/message";
 const SMS_USERNAME = "sms";
 const SMS_PASSWORD = "smspassword";
 

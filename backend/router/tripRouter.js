@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import tokenVerification from "../middleware/tokenVerify.js";
 import { ensurePoliceCase } from "../utils/caseEscalation.js";
+import { processRecentActiveTripLocations } from "../utils/tripLocationMonitor.js";
 
 const router = express.Router();
 const TRIP_FILE = "./user/trips.json";
@@ -108,7 +109,7 @@ router.post("/", async (req, res) => {
     }
     const tripsByUser = readTrips();
     const trips = tripsByUser[req.user_id] || [];
-    const activeTrip = trips.find((trip) => !trip.endedAt && !trip.isPlanned);
+    const activeTrip = trips.find((trip) => !trip.endedAt && (!trip.isPlanned || trip.tripStartedAt));
     if (activeTrip) return res.status(409).json({ error: "End your active trip before starting another", trip: activeTrip });
     const trip = {
         id: crypto.randomUUID(),
@@ -131,8 +132,11 @@ router.post("/", async (req, res) => {
         const [fallbackStart = "", fallbackDestination = ""] = package_name.split(" → ");
         generateAndSaveTravelBriefing(req.user_id, trip.id, trip.startAddress || fallbackStart, trip.destinationAddress || fallbackDestination)
             .catch((error) => console.error(`[Gemini] Could not save trip briefing: ${error.message}`));
+    } else {
+        await processRecentActiveTripLocations();
     }
-    return res.status(201).json({ trip });
+    const savedTrip = (readTrips()[req.user_id] || []).find((entry) => entry.id === trip.id) || trip;
+    return res.status(201).json({ trip: savedTrip });
 });
 
 router.post("/:tripId/start", async (req, res) => {
@@ -141,12 +145,16 @@ router.post("/:tripId/start", async (req, res) => {
     if (!trip) return res.status(404).json({ error: "Trip not found" });
     if (!trip.isPlanned) return res.status(400).json({ error: "Only a planned trip can be started here" });
     if (trip.endedAt) return res.status(409).json({ error: "This trip has already ended" });
+    const otherActiveTrip = (tripsByUser[req.user_id] || []).find((entry) => entry.id !== trip.id && !entry.endedAt && (!entry.isPlanned || entry.tripStartedAt));
+    if (otherActiveTrip) return res.status(409).json({ error: "End your active trip before starting another", trip: otherActiveTrip });
     if (!trip.tripStartedAt) {
         trip.tripStartedAt = new Date().toISOString();
     }
     tripsByUser[req.user_id] = tripsByUser[req.user_id].map((entry) => entry.id === trip.id ? trip : entry);
     fs.writeFileSync(TRIP_FILE, JSON.stringify(tripsByUser, null, 2));
-    return res.json({ trip });
+    await processRecentActiveTripLocations();
+    const savedTrip = (readTrips()[req.user_id] || []).find((entry) => entry.id === trip.id) || trip;
+    return res.json({ trip: savedTrip });
 });
 
 router.put("/:tripId/end", async (req, res) => {
